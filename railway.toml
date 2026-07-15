@@ -1,0 +1,10 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd Backend && ./mvnw clean package -DskipTests"
+
+[deploy]
+startCommand = "java -jar Backend/target/expense-tracker-backend-0.0.1-SNAPSHOT.jar"
+healthcheckPath = "/api/auth/login"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
