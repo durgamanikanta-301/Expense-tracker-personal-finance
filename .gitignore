@@ -1,0 +1,18 @@
+x# Root-level ignore rules
+# Frontend and Backend each have their own .gitignore as well
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Environment files
+.env
+.env.local
+
+# Logs
+*.log

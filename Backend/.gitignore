@@ -1,0 +1,21 @@
+# Maven
+target/
+*.class
+
+# Package files
+*.jar
+*.war
+
+# Logs
+*.log
+
+# Env files
+.env
+
+# Editor / IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
