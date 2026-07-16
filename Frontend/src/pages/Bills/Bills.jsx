@@ -14,11 +14,12 @@ import { Plus, Pencil, Trash2, CheckCircle2, Clock, AlertTriangle, Zap, Receipt 
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDateShort, daysUntil, formatCurrency } from '@/utils'
+import { resolveIntelligentCategory, cleanDescription, getCategoryConfig } from '@/services/merchantService'
 import CountUp from 'react-countup'
 
 const nextMonth = () => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] }
 const emptyForm = () => ({
-  name: '', amount: '', category: 'UTILITIES', frequency: 'MONTHLY',
+  name: '', amount: '', category: 'Other', frequency: 'MONTHLY',
   nextDueDate: nextMonth(), autoDebit: false, reminderDays: 3, description: '',
 })
 
@@ -51,10 +52,12 @@ export function Bills() {
 
   const open = (b = null) => {
     setEdit(b)
-    setForm(b
-      ? { name: b.name, amount: Number(b.amount), category: b.category, frequency: b.frequency, nextDueDate: b.nextDueDate, autoDebit: b.autoDebit, reminderDays: b.reminderDays ?? 3, description: b.description || '' }
-      : emptyForm()
-    )
+    if (b) {
+      const intCat = resolveIntelligentCategory({ description: b.description, category: b.category, title: b.name })
+      setForm({ name: b.name, amount: Number(b.amount), category: intCat, frequency: b.frequency, nextDueDate: b.nextDueDate, autoDebit: b.autoDebit, reminderDays: b.reminderDays ?? 3, description: cleanDescription(b.description) || '' })
+    } else {
+      setForm(emptyForm())
+    }
     setErrs({})
     setModal(true)
   }
@@ -73,7 +76,14 @@ export function Bills() {
   const submit = async () => {
     if (!validate()) return
     setSave(true)
-    const payload = { ...form, amount: Number(form.amount), reminderDays: Number(form.reminderDays) || 0 }
+    
+    const config = getCategoryConfig(form.category)
+    const backendCategory = config.backendEnum || 'OTHER'
+    let finalDesc = form.description ? form.description.replace(/\[cat:.+?\]/g, '').trim() : ''
+    finalDesc = finalDesc ? `${finalDesc} [cat:${form.category}]` : `[cat:${form.category}]`
+    
+    const payload = { ...form, amount: Number(form.amount), reminderDays: Number(form.reminderDays) || 0, category: backendCategory, description: finalDesc }
+    
     try {
       if (editing) await updateMut.mutateAsync({ id: editing.id, d: payload })
       else         await createMut.mutateAsync(payload)
@@ -168,7 +178,8 @@ export function Bills() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
             {bills.map(bill => {
-              const cfg   = CATEGORY_CONFIG[bill.category]
+              const intCat = resolveIntelligentCategory({ description: bill.description, category: bill.category, title: bill.name })
+              const cfg   = getCategoryConfig(intCat)
               const days  = daysUntil(bill.nextDueDate)
               const urgent = !bill.paid && days <= 3 && !bill.overdue
 
@@ -218,7 +229,7 @@ export function Bills() {
                           <p className="text-sm font-bold text-white truncate">{bill.name}</p>
                           {bill.autoDebit && <Zap className="w-3 h-3 text-cyan-400 shrink-0" />}
                         </div>
-                        <p className="text-[10px] text-zinc-500">{cfg?.label || bill.category} • {bill.frequency}</p>
+                        <p className="text-[10px] text-zinc-500">{intCat} • {bill.frequency}</p>
                       </div>
                     </div>
 
@@ -286,7 +297,7 @@ export function Bills() {
             <div>
               <label className={labelCls}>Category *</label>
               <select className={selectCls} value={form.category} onChange={set('category')}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].emoji} {CATEGORY_CONFIG[c].label}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].emoji} {c}</option>)}
               </select>
             </div>
             <div>

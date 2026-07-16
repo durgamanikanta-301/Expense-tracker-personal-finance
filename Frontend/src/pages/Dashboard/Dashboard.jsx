@@ -3,7 +3,10 @@ import { dashboardService } from '@/services/dashboardService'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StatCard } from '@/components/ui/StatCard'
 import { DashboardSkeleton } from '@/components/ui/Skeleton'
+import { MerchantLogo } from '@/components/ui/MerchantLogo'
 import { CATEGORY_CONFIG } from '@/constants'
+import { resolveIntelligentCategory, cleanDescription, getCategoryConfig, detectMerchant } from '@/services/merchantService'
+import { expenseService } from '@/services/expenseService'
 import {
   Wallet, TrendingUp, TrendingDown, PiggyBank,
   HeartPulse, Brain, Quote, ArrowUpRight, ArrowDownLeft,
@@ -93,6 +96,13 @@ export function Dashboard() {
     staleTime: 30_000,
   })
 
+  // Fetch all expenses to compute intelligent category breakdowns
+  const { data: allExpenses = [] } = useQuery({
+    queryKey: ['expenses'],
+    queryFn: expenseService.getAll,
+    staleTime: 15_000,
+  })
+
   if (isLoading) return <DashboardSkeleton />
 
   if (error || !data) {
@@ -130,12 +140,29 @@ export function Dashboard() {
     Expense: Number(s.expense),
   }))
 
-  const pieData = data.categoryWiseSpending.map(c => ({
-    name: CATEGORY_CONFIG[c.category]?.label || c.category,
-    value: Number(c.amount),
-    color: CATEGORY_CONFIG[c.category]?.color || '#94A3B8',
-    pct: Number(c.percentage),
-  }))
+  // Compute intelligent categories for current month
+  const currentMonth = new Date().getMonth()
+  const currentYear = new Date().getFullYear()
+  const currentMonthExpenses = allExpenses.filter(tx => {
+    const d = new Date(tx.expenseDate)
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear && tx.transactionType === 'EXPENSE'
+  })
+
+  let totalCatExpense = 0
+  const catTotals = {}
+  currentMonthExpenses.forEach(tx => {
+    const intCat = resolveIntelligentCategory(tx)
+    catTotals[intCat] = (catTotals[intCat] || 0) + Number(tx.amount)
+    totalCatExpense += Number(tx.amount)
+  })
+
+  const pieData = Object.entries(catTotals).map(([name, value]) => ({
+    name,
+    value,
+    color: getCategoryConfig(name).color,
+    emoji: getCategoryConfig(name).emoji,
+    pct: totalCatExpense > 0 ? (value / totalCatExpense) * 100 : 0,
+  })).sort((a, b) => b.value - a.value)
 
   const netPositive = Number(data.monthlyBalance) >= 0
   const spendRatio = Number(data.monthlyIncome) > 0
@@ -345,16 +372,16 @@ export function Dashboard() {
                   </ResponsiveContainer>
                 </div>
                 <div className="space-y-1.5 mt-2">
-                  {data.categoryWiseSpending.slice(0, 5).map(c => (
-                    <div key={c.category} className="flex items-center gap-2 text-[11px] min-w-0">
+                  {pieData.slice(0, 5).map(c => (
+                    <div key={c.name} className="flex items-center gap-2 text-[11px] min-w-0">
                       <span
                         className="w-2 h-2 rounded-full shrink-0"
-                        style={{ background: CATEGORY_CONFIG[c.category]?.color || '#94A3B8' }}
+                        style={{ background: c.color }}
                       />
                       <span className="text-zinc-500 truncate flex-1">
-                        {CATEGORY_CONFIG[c.category]?.emoji} {CATEGORY_CONFIG[c.category]?.label || c.category}
+                        {c.emoji} {c.name}
                       </span>
-                      <span className="text-white font-semibold">{Number(c.percentage).toFixed(0)}%</span>
+                      <span className="text-white font-semibold">{c.pct.toFixed(0)}%</span>
                     </div>
                   ))}
                 </div>
@@ -400,27 +427,22 @@ export function Dashboard() {
                 <tbody className="divide-y divide-white/[0.03]">
                   {data.recentTransactions.map(tx => {
                     const isIncome = tx.transactionType === 'INCOME'
-                    const cfg = CATEGORY_CONFIG[tx.category]
+                    const intCat = resolveIntelligentCategory(tx)
+                    const cfg = getCategoryConfig(intCat)
+                    const merchant = detectMerchant(tx.title)
+                    const displayDesc = cleanDescription(tx.description)
                     return (
                       <tr key={tx.id} className="hover:bg-white/[0.02] transition-colors">
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-3">
-                            <div
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-sm shrink-0"
-                              style={{ background: cfg?.bg || 'rgba(255,255,255,0.05)' }}
-                            >
-                              {isIncome
-                                ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
-                                : (cfg?.emoji || <ArrowDownLeft className="w-3.5 h-3.5 text-zinc-400" />)
-                              }
-                            </div>
+                            <MerchantLogo merchant={merchant} name={tx.title} size="sm" />
                             <div>
                               <p className="text-sm text-white font-medium leading-none max-w-[140px] truncate">
                                 {tx.title}
                               </p>
-                              {tx.description && (
+                              {displayDesc && (
                                 <p className="text-[10px] text-zinc-600 mt-0.5 max-w-[140px] truncate">
-                                  {tx.description}
+                                  {displayDesc}
                                 </p>
                               )}
                             </div>
@@ -432,7 +454,7 @@ export function Dashboard() {
                             style={{ background: cfg?.bg, color: cfg?.color }}
                           >
                             <span>{cfg?.emoji}</span>
-                            <span className="hidden lg:inline">{cfg?.label || tx.category}</span>
+                            <span className="hidden lg:inline">{intCat}</span>
                           </span>
                         </td>
                         <td className="py-3 pr-4 hidden md:table-cell text-[11px] text-zinc-500 whitespace-nowrap">

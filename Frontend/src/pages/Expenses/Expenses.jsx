@@ -9,15 +9,17 @@ import { RowSkeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/Badge'
+import { MerchantLogo } from '@/components/ui/MerchantLogo'
 import { CATEGORY_CONFIG, CATEGORIES } from '@/constants'
 import { Plus, Search, Pencil, Trash2, ArrowUpRight, ArrowDownLeft, Filter, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDateShort, formatCurrency } from '@/utils'
+import { resolveIntelligentCategory, cleanDescription, getCategoryConfig, detectMerchant } from '@/services/merchantService'
 import CountUp from 'react-countup'
 
 const emptyForm = () => ({
-  title: '', amount: '', category: 'OTHER', transactionType: 'EXPENSE',
+  title: '', amount: '', category: 'Other', transactionType: 'EXPENSE',
   description: '', expenseDate: new Date().toISOString().split('T')[0],
 })
 
@@ -36,6 +38,7 @@ export function Expenses() {
   const [search, setSearch]   = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [catFilter, setCatFilter]   = useState('ALL')
+  const [detectedMerchant, setDetectedMerchant] = useState(null)
 
   const { data: expenses = [], isLoading, error } = useQuery({
     queryKey: ['expenses'],
@@ -54,7 +57,7 @@ export function Expenses() {
 
   const filtered = useMemo(() => expenses.filter(e => {
     const mT = typeFilter === 'ALL' || e.transactionType === typeFilter
-    const mC = catFilter === 'ALL' || e.category === catFilter
+    const mC = catFilter === 'ALL' || resolveIntelligentCategory(e) === catFilter
     const mS = !search || e.title.toLowerCase().includes(search.toLowerCase())
     return mT && mC && mS
   }), [expenses, typeFilter, catFilter, search])
@@ -65,14 +68,20 @@ export function Expenses() {
 
   const open = (exp = null) => {
     setEditing(exp)
-    setForm(exp
-      ? { title: exp.title, amount: Number(exp.amount), category: exp.category, transactionType: exp.transactionType, description: exp.description || '', expenseDate: exp.expenseDate }
-      : emptyForm()
-    )
+    if (exp) {
+      const intCat = resolveIntelligentCategory(exp)
+      setForm({ 
+        title: exp.title, amount: Number(exp.amount), category: intCat, 
+        transactionType: exp.transactionType, description: cleanDescription(exp.description) || '', expenseDate: exp.expenseDate 
+      })
+    } else {
+      setForm(emptyForm())
+    }
+    setDetectedMerchant(null)
     setErrs({})
     setModal(true)
   }
-  const close = () => { setModal(false); setEditing(null); setForm(emptyForm()); setErrs({}) }
+  const close = () => { setModal(false); setEditing(null); setForm(emptyForm()); setErrs({}); setDetectedMerchant(null) }
   const set = (k) => (e) => setForm(p => ({ ...p, [k]: e.target.value }))
 
   const validate = () => {
@@ -87,7 +96,14 @@ export function Expenses() {
   const submit = async () => {
     if (!validate()) return
     setSaving(true)
-    const payload = { ...form, amount: Number(form.amount) }
+    
+    const config = getCategoryConfig(form.category)
+    const backendCategory = config.backendEnum || 'OTHER'
+    let finalDesc = form.description ? form.description.replace(/\[cat:.+?\]/g, '').trim() : ''
+    finalDesc = finalDesc ? `${finalDesc} [cat:${form.category}]` : `[cat:${form.category}]`
+    
+    const payload = { ...form, amount: Number(form.amount), category: backendCategory, description: finalDesc }
+    
     try {
       if (editing) await updateMut.mutateAsync({ id: editing.id, data: payload })
       else         await createMut.mutateAsync(payload)
@@ -223,7 +239,10 @@ export function Expenses() {
                 <AnimatePresence>
                   {filtered.map(tx => {
                     const isIncome = tx.transactionType === 'INCOME'
-                    const cfg = CATEGORY_CONFIG[tx.category]
+                    const intCat = resolveIntelligentCategory(tx)
+                    const cfg = getCategoryConfig(intCat)
+                    const merchant = detectMerchant(tx.title)
+                    const displayDesc = cleanDescription(tx.description)
                     return (
                       <motion.tr
                         key={tx.id}
@@ -236,22 +255,14 @@ export function Expenses() {
                       >
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-3">
-                            <div
-                              className="w-8 h-8 rounded-xl flex items-center justify-center text-sm shrink-0"
-                              style={{ background: cfg?.bg || 'rgba(255,255,255,0.05)' }}
-                            >
-                              {isIncome
-                                ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
-                                : (cfg?.emoji || <ArrowDownLeft className="w-3.5 h-3.5 text-zinc-400" />)
-                              }
-                            </div>
+                            <MerchantLogo merchant={merchant} name={tx.title} size="md" />
                             <div>
                               <p className="text-sm text-white font-medium leading-none truncate max-w-[140px] lg:max-w-[220px]">
                                 {tx.title}
                               </p>
-                              {tx.description && (
+                              {displayDesc && (
                                 <p className="text-[10px] text-zinc-600 mt-0.5 truncate max-w-[140px]">
-                                  {tx.description}
+                                  {displayDesc}
                                 </p>
                               )}
                             </div>
@@ -263,7 +274,7 @@ export function Expenses() {
                             style={{ background: cfg?.bg, color: cfg?.color }}
                           >
                             <span>{cfg?.emoji}</span>
-                            <span className="hidden lg:inline">{cfg?.label || tx.category}</span>
+                            <span className="hidden lg:inline">{intCat}</span>
                           </span>
                         </td>
                         <td className="px-4 py-3.5 hidden md:table-cell">
@@ -308,7 +319,48 @@ export function Expenses() {
       {/* Create/Edit Modal */}
       <Modal isOpen={modal} onClose={close} title={editing ? 'Edit Transaction' : 'Add Transaction'}>
         <div className="space-y-4">
-          <Input label="Title *" placeholder="e.g. Monthly salary, Zomato order" value={form.title} onChange={set('title')} error={errs.title} />
+          <div className="relative">
+            <Input 
+              label="Title *" 
+              placeholder="e.g. Monthly salary, Zomato order" 
+              value={form.title} 
+              onChange={e => {
+                const val = e.target.value
+                set('title')(e)
+                const m = detectMerchant(val)
+                setDetectedMerchant(m && val.length > 1 ? m : null)
+              }} 
+              error={errs.title} 
+            />
+            <AnimatePresence>
+              {detectedMerchant && !editing && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute z-20 top-full mt-2 w-full glass rounded-xl border border-white/[0.08] shadow-elevated p-2 flex items-center justify-between cursor-pointer hover:bg-white/[0.04] transition-colors"
+                  onClick={() => {
+                    setForm(p => ({
+                      ...p,
+                      title: detectedMerchant.name,
+                      category: detectedMerchant.category,
+                      description: detectedMerchant.desc || p.description
+                    }))
+                    setDetectedMerchant(null)
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <MerchantLogo merchant={detectedMerchant} name={detectedMerchant.name} size="md" />
+                    <div>
+                      <p className="text-sm font-bold text-white font-display">{detectedMerchant.name} <span className="font-normal opacity-50 ml-1">Suggestion</span></p>
+                      <p className="text-[11px] text-zinc-400">{detectedMerchant.category} • {detectedMerchant.desc}</p>
+                    </div>
+                  </div>
+                  <Button size="xs" variant="ghost" className="pointer-events-none">Auto-fill</Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Amount (₹) *" type="number" min="0.01" step="0.01" placeholder="5000" value={form.amount} onChange={set('amount')} error={errs.amount} />
             <Input label="Date *" type="date" value={form.expenseDate} onChange={set('expenseDate')} error={errs.expenseDate} />

@@ -14,12 +14,13 @@ import { Plus, Pencil, Trash2, AlertTriangle, TrendingDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatCurrency } from '@/utils'
+import { resolveIntelligentCategory, cleanDescription, getCategoryConfig } from '@/services/merchantService'
 
 const now = new Date()
 const YEARS = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1]
 
 const emptyForm = () => ({
-  name: '', category: 'OTHER', budgetAmount: '',
+  name: '', category: 'Other', budgetAmount: '',
   budgetYear: now.getFullYear(), budgetMonth: now.getMonth() + 1, description: '',
 })
 
@@ -50,10 +51,12 @@ export function Budgets() {
 
   const open = (b = null) => {
     setEdit(b)
-    setForm(b
-      ? { name: b.name, category: b.category, budgetAmount: Number(b.budgetAmount), budgetYear: b.budgetYear, budgetMonth: b.budgetMonth, description: b.description || '' }
-      : emptyForm()
-    )
+    if (b) {
+      const intCat = resolveIntelligentCategory({ description: b.description, category: b.category, title: b.name })
+      setForm({ name: b.name, category: intCat, budgetAmount: Number(b.budgetAmount), budgetYear: b.budgetYear, budgetMonth: b.budgetMonth, description: cleanDescription(b.description) || '' })
+    } else {
+      setForm(emptyForm())
+    }
     setErrs({})
     setModal(true)
   }
@@ -71,7 +74,13 @@ export function Budgets() {
   const submit = async () => {
     if (!validate()) return
     setSave(true)
-    const payload = { ...form, budgetAmount: Number(form.budgetAmount), budgetYear: Number(form.budgetYear), budgetMonth: Number(form.budgetMonth) }
+    
+    const config = getCategoryConfig(form.category)
+    const backendCategory = config.backendEnum || 'OTHER'
+    let finalDesc = form.description ? form.description.replace(/\[cat:.+?\]/g, '').trim() : ''
+    finalDesc = finalDesc ? `${finalDesc} [cat:${form.category}]` : `[cat:${form.category}]`
+    
+    const payload = { ...form, budgetAmount: Number(form.budgetAmount), budgetYear: Number(form.budgetYear), budgetMonth: Number(form.budgetMonth), category: backendCategory, description: finalDesc }
     try {
       if (editing) await updateMut.mutateAsync({ id: editing.id, d: payload })
       else         await createMut.mutateAsync(payload)
@@ -170,7 +179,8 @@ export function Budgets() {
                 ? Math.min((Number(b.spentAmount) / Number(b.budgetAmount)) * 100, 100)
                 : 0
               const barColor = b.exceeded ? '#EF4444' : pct >= 80 ? '#F59E0B' : '#10B981'
-              const cfg = CATEGORY_CONFIG[b.category]
+              const intCat = resolveIntelligentCategory({ description: b.description, category: b.category, title: b.name })
+              const cfg = getCategoryConfig(intCat)
 
               return (
                 <motion.div
@@ -204,7 +214,7 @@ export function Budgets() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-white truncate">{b.name}</p>
-                        <p className="text-[10px] text-zinc-500">{cfg?.label || b.category} • {MONTHS[b.budgetMonth - 1]?.l} {b.budgetYear}</p>
+                        <p className="text-[10px] text-zinc-500">{intCat} • {MONTHS[b.budgetMonth - 1]?.l} {b.budgetYear}</p>
                       </div>
                     </div>
 
@@ -258,7 +268,7 @@ export function Budgets() {
             <div>
               <label className={labelCls}>Category *</label>
               <select className={selectCls} value={form.category} onChange={set('category')}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].emoji} {CATEGORY_CONFIG[c].label}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].emoji} {c}</option>)}
               </select>
             </div>
             <Input label="Amount (₹) *" type="number" min="1" placeholder="10000" value={form.budgetAmount} onChange={set('budgetAmount')} error={errs.budgetAmount} />
