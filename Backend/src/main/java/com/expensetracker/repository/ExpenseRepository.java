@@ -33,8 +33,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     @Query("""
             SELECT e FROM Expense e
             WHERE e.user.id = :userId
-              AND FUNCTION('MONTH', e.expenseDate) = :month
-              AND FUNCTION('YEAR',  e.expenseDate) = :year
+              AND EXTRACT(MONTH FROM e.expenseDate) = :month
+              AND EXTRACT(YEAR FROM e.expenseDate) = :year
             ORDER BY e.expenseDate DESC
             """)
     List<Expense> findByUserIdAndMonthAndYear(
@@ -45,7 +45,7 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     @Query("""
             SELECT e FROM Expense e
             WHERE e.user.id = :userId
-              AND FUNCTION('YEAR', e.expenseDate) = :year
+              AND EXTRACT(YEAR FROM e.expenseDate) = :year
             ORDER BY e.expenseDate DESC
             """)
     List<Expense> findByUserIdAndYear(
@@ -67,8 +67,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
             FROM Expense e
             WHERE e.user.id = :userId
               AND e.transactionType = :type
-              AND FUNCTION('MONTH', e.expenseDate) = :month
-              AND FUNCTION('YEAR',  e.expenseDate) = :year
+              AND EXTRACT(MONTH FROM e.expenseDate) = :month
+              AND EXTRACT(YEAR FROM e.expenseDate) = :year
             """)
     BigDecimal sumAmountByUserIdAndTypeAndMonthAndYear(
             @Param("userId") Long userId,
@@ -80,9 +80,9 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
             SELECT e.category, COALESCE(SUM(e.amount), 0)
             FROM Expense e
             WHERE e.user.id = :userId
-              AND e.transactionType = 'EXPENSE'
-              AND FUNCTION('MONTH', e.expenseDate) = :month
-              AND FUNCTION('YEAR',  e.expenseDate) = :year
+              AND e.transactionType = com.expensetracker.entity.TransactionType.EXPENSE
+              AND EXTRACT(MONTH FROM e.expenseDate) = :month
+              AND EXTRACT(YEAR FROM e.expenseDate) = :year
             GROUP BY e.category
             """)
     List<Object[]> sumExpenseByCategory(

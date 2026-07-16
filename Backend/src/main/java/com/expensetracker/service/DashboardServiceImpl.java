@@ -95,7 +95,7 @@ public class DashboardServiceImpl implements DashboardService {
     private List<CategorySummary> buildCategorySummaries(List<Object[]> raw, BigDecimal total) {
         List<CategorySummary> list = new ArrayList<>();
         for (Object[] row : raw) {
-            Category category = (Category) row[0];
+            Category category = (row[0] instanceof Category) ? (Category) row[0] : Category.valueOf(row[0].toString());
             BigDecimal amount = new BigDecimal(row[1].toString());
             double pct = 0.0;
             if (total.compareTo(BigDecimal.ZERO) > 0) {
