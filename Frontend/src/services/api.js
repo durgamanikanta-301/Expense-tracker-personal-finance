@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { toast } from 'sonner'
 
-// In production (Vercel): set VITE_API_BASE_URL = https://your-backend.railway.app/api
-// In local dev: falls back to '/api' which Vite proxies to http://localhost:8080
+// In production (Vercel): set VITE_API_BASE_URL = https://your-backend.onrender.com/api
+// In local dev: falls back to '/api' which Vite proxy (vite.config.js) routes to http://localhost:8080
+// No .env file needed for local development — works out of the box after git clone!
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 15000,
