@@ -104,6 +104,24 @@ export function Dashboard() {
     staleTime: 15_000,
   })
 
+  // Auto-rotating quote — must be before any early returns (React Rules of Hooks)
+  const [quote, setQuote] = useState(getRandomQuote)
+  const [quoteVisible, setQuoteVisible] = useState(true)
+
+  useEffect(() => {
+    const THREE_MIN = 1000 * 60 * 3
+    const msUntilNext = THREE_MIN - (Date.now() % THREE_MIN)
+    const tick = () => {
+      setQuote(getRandomQuote())
+    }
+    const initial = setTimeout(() => {
+      tick()
+      const interval = setInterval(tick, THREE_MIN)
+      return () => clearInterval(interval)
+    }, msUntilNext)
+    return () => clearTimeout(initial)
+  }, [])
+
   if (isLoading) return <DashboardSkeleton />
 
   if (error || !data) {
@@ -133,28 +151,6 @@ export function Dashboard() {
     Number(data.monthlyExpense),
     Number(data.currentBalance)
   )
-  // Auto-rotating quote — updates every 3 minutes with fade
-  const [quote, setQuote] = useState(getRandomQuote)
-  const [quoteVisible, setQuoteVisible] = useState(true)
-
-  useEffect(() => {
-    const THREE_MIN = 1000 * 60 * 3
-    // Calculate ms until the next 3-minute boundary
-    const msUntilNext = THREE_MIN - (Date.now() % THREE_MIN)
-    const tick = () => {
-      setQuoteVisible(false)
-      setTimeout(() => {
-        setQuote(getRandomQuote())
-        setQuoteVisible(true)
-      }, 500)
-    }
-    const initial = setTimeout(() => {
-      tick()
-      const interval = setInterval(tick, THREE_MIN)
-      return () => clearInterval(interval)
-    }, msUntilNext)
-    return () => clearTimeout(initial)
-  }, [])
 
   const areaData = [...data.monthlySummaries].reverse().map(s => ({
     name: s.monthName?.slice(0, 3) || '',
